@@ -6,6 +6,11 @@ icon adds only its own motif. Hand-writing three near-identical figures invites
 them drifting apart.
 """
 
+from pathlib import Path
+import re
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 SAGE, CLAY, CREAM, INK = "#2F4A37", "#763A1D", "#FAF6EF", "#2A2E27"
 FONT = "system-ui, -apple-system, Segoe UI, sans-serif"
 
@@ -32,7 +37,12 @@ def frame(title, body):
 
 
 def write(name, title, body):
-    open(f"public/images/{name}.svg", "w").write(frame(title, body))
+    if not re.fullmatch(r"[a-z0-9-]+", name):
+        raise ValueError("Invalid icon name")
+    target = (REPO_ROOT / "public" / "images" / f"{name}.svg").resolve()
+    if not target.is_relative_to(REPO_ROOT):
+        raise ValueError("Icon path must stay within the repository")
+    target.write_text(frame(title, body), encoding="utf-8")
     print("wrote", name)
 
 
