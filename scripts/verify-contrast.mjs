@@ -1,11 +1,21 @@
 // Fails the build if any text/background pair drops below WCAG AAA (7:1), or if
 // a decorative-only token is used for text. The audience is elderly; AAA is the
 // requirement, not an aspiration.
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { readFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
+import { join, relative, isAbsolute, sep } from "node:path";
+import { pathToFileURL, fileURLToPath } from "node:url";
 
 const AAA = 7;
+const REPO_ROOT = realpathSync(fileURLToPath(new URL("../", import.meta.url)));
+
+function repoPath(path) {
+  const resolved = realpathSync(join(REPO_ROOT, path));
+  const rel = relative(REPO_ROOT, resolved);
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error("Path must stay within the repository");
+  }
+  return resolved;
+}
 
 // Pairs that must hold. [foreground token, background token]
 const TEXT_PAIRS = [
@@ -204,7 +214,8 @@ function collectTsxFiles(dir) {
     for (const entry of entries) {
       if (entry === "node_modules" || entry === ".next") continue;
       const path = join(dir, entry);
-      const stat = statSync(path);
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) continue;
       if (stat.isDirectory()) {
         files.push(...collectTsxFiles(path));
       } else if (entry.endsWith(".tsx")) {
@@ -223,8 +234,8 @@ export function findDecorativeMisuseTailwind() {
   const files = [];
 
   // Collect all TSX files from components and app directories
-  files.push(...collectTsxFiles("components"));
-  files.push(...collectTsxFiles("app"));
+  files.push(...collectTsxFiles(repoPath("components")));
+  files.push(...collectTsxFiles(repoPath("app")));
 
   for (const file of files) {
     try {
@@ -248,7 +259,7 @@ export function findDecorativeMisuseTailwind() {
 }
 
 function main() {
-  const css = readFileSync("app/globals.css", "utf8");
+  const css = readFileSync(repoPath("app/globals.css"), "utf8");
 
   if (process.argv.includes("--self-test")) return selfTest();
 

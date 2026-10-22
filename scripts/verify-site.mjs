@@ -4,6 +4,24 @@
 import { routes } from "../lib/routes.ts";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
+const BASE_ORIGIN = new URL(BASE).origin;
+
+async function fetchLocal(path, options = {}) {
+  let url = new URL(BASE + path);
+  for (let redirects = 0; redirects <= 20; redirects++) {
+    if (!['http:', 'https:'].includes(url.protocol) ||
+        url.origin !== BASE_ORIGIN || url.username || url.password) {
+      throw new Error("Fetch must stay on the configured base URL origin");
+    }
+    const response = await fetch(url, { ...options, redirect: "manual" });
+    const location = response.headers.get("location");
+    if (options.redirect === "manual" || !location ||
+        ![301, 302, 303, 307, 308].includes(response.status)) return response;
+    await response.body?.cancel();
+    url = new URL(location, url);
+  }
+  throw new Error("Too many redirects");
+}
 
 // This ROUTES array is hand-maintained here, separate from lib/routes.ts,
 // because it carries two things the nav/sitemap source has no use for:
@@ -140,7 +158,7 @@ const linkCache = new Map();
 
 async function linkStatus(href) {
   if (!linkCache.has(href)) {
-    const res = await fetch(BASE + href, { method: "GET" });
+    const res = await fetchLocal(href, { method: "GET" });
     linkCache.set(href, res.status);
   }
   return linkCache.get(href);
@@ -148,7 +166,7 @@ async function linkStatus(href) {
 
 async function checkRoute({ path, jsonLd, mustContain = [] }) {
   console.log(`\n${path}`);
-  const res = await fetch(BASE + path);
+  const res = await fetchLocal(path);
   if (res.status !== 200) return fail(`status ${res.status}`);
   pass("200");
   const html = await res.text();
@@ -233,7 +251,7 @@ async function checkRoute({ path, jsonLd, mustContain = [] }) {
 for (const r of ROUTES) await checkRoute(r);
 
 console.log("\n/sitemap.xml + /robots.txt");
-const sm = await fetch(BASE + "/sitemap.xml");
+const sm = await fetchLocal("/sitemap.xml");
 if (sm.status !== 200) fail(`/sitemap.xml -> ${sm.status}`);
 else {
   const body = await sm.text();
@@ -253,7 +271,7 @@ else {
   }
 }
 
-const rb = await fetch(BASE + "/robots.txt");
+const rb = await fetchLocal("/robots.txt");
 if (rb.status !== 200) fail(`/robots.txt -> ${rb.status}`);
 else {
   const body = await rb.text();
@@ -266,7 +284,7 @@ else {
 
 console.log("\nredirects");
 for (const { from, to } of REDIRECTS) {
-  const res = await fetch(BASE + from, { redirect: "manual" });
+  const res = await fetchLocal(from, { redirect: "manual" });
   check(
     res.status === 308,
     `${from} -> 308`,
